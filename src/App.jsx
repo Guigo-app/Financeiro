@@ -293,6 +293,7 @@ export default function App() {
 
   // --- ESTADOS DA ABA COMPARTILHADOS ---
   const [sharedTitle, setSharedTitle] = useState('');
+  const [sharedDate, setSharedDate] = useState(''); // <-- Estado para o campo de data
   const [sharedDescription, setSharedDescription] = useState('');
   const [sharedAmount, setSharedAmount] = useState('');
   const [sharedPaidBy, setSharedPaidBy] = useState('');
@@ -652,9 +653,15 @@ export default function App() {
     const numAmount = parseFloat(sharedAmount.toString().replace(/\./g, '').replace(',', '.'));
     if (isNaN(numAmount) || numAmount <= 0) return alert('Valor inválido!');
 
+    let formattedDate = new Date().toLocaleDateString('pt-BR');
+    if (sharedDate) {
+        const [y, m, d] = sharedDate.split('-');
+        formattedDate = `${d}/${m}/${y}`;
+    }
+
     const newExpense = {
       id: Date.now(),
-      date: new Date().toLocaleDateString('pt-BR'),
+      date: formattedDate,
       title: sharedTitle.trim(),
       description: sharedDescription.trim(),
       amount: numAmount,
@@ -667,6 +674,7 @@ export default function App() {
     setSharedTitle('');
     setSharedDescription('');
     setSharedAmount('');
+    setSharedDate('');
     setIsAddSharedModalOpen(false); 
     
     await supabase.from('shared_expenses').insert([newExpense]);
@@ -685,13 +693,22 @@ export default function App() {
   };
 
   const filteredSharedExpenses = useMemo(() => {
-    return sharedExpenses.filter(exp => {
+    const filtered = sharedExpenses.filter(exp => {
        const parts = exp.date.split('/'); 
        if (parts.length !== 3) return true;
        const [, m, y] = parts;
        const passMes = filterMesShared === 'Todos' || m === filterMesShared;
        const passAno = filterAnoShared === 'Todos' || y === filterAnoShared;
        return passMes && passAno;
+    });
+
+    // Ordenação da mais recente para a mais antiga
+    return filtered.sort((a, b) => {
+       const [da, ma, ya] = a.date.split('/');
+       const [db, mb, yb] = b.date.split('/');
+       const dateA = new Date(ya, ma - 1, da);
+       const dateB = new Date(yb, mb - 1, db);
+       return dateB - dateA;
     });
   }, [sharedExpenses, filterMesShared, filterAnoShared]);
 
@@ -721,10 +738,12 @@ export default function App() {
         let myShare = 0;
         if (exp.split_mode === '50_50') {
           myShare = exp.amount / 2;
-        } else if (exp.split_mode === `100_${loggedUser.toLowerCase()}`) {
-          myShare = exp.amount;
         } else if (exp.split_mode === '100') {
-          myShare = 0;
+          // Se fui eu que paguei, minha parte da conta é 0 (o outro me deve tudo).
+          // Se foi o outro que pagou, minha parte é o valor integral (eu devo tudo).
+          myShare = isMePaying ? 0 : exp.amount;
+        } else if (exp.split_mode === `100_${loggedUser.toLowerCase()}`) {
+          myShare = exp.amount; // fallback para banco de dados antigo
         }
 
         if (isMePaying) {
@@ -1571,6 +1590,7 @@ export default function App() {
             </div>
             <div className="theme-body">
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <input type="date" className="form-input" value={sharedDate} onChange={(e) => setSharedDate(e.target.value)} />
                 <input type="text" className="form-input" placeholder="Nome do Item" value={sharedTitle} onChange={(e) => setSharedTitle(e.target.value)} autoFocus />
                 <input type="text" className="form-input" placeholder="Valor (R$ 0,00)" value={sharedAmount} onChange={(e) => setSharedAmount(e.target.value.replace(/[^0-9.,]/g, ''))} />
                 <input type="text" className="form-input" placeholder="Descrição do item" value={sharedDescription} onChange={(e) => setSharedDescription(e.target.value)} />
@@ -1972,7 +1992,10 @@ export default function App() {
                   </select>
                 </div>
                 <div>
-                  <button className="btn-primary" onClick={() => setIsAddSharedModalOpen(true)}>
+                  <button className="btn-primary" onClick={() => {
+                    setSharedDate(new Date().toISOString().split('T')[0]);
+                    setIsAddSharedModalOpen(true);
+                  }}>
                     + Add Conta
                   </button>
                 </div>
@@ -1996,7 +2019,16 @@ export default function App() {
                       <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Nenhuma despesa listada.</td></tr>
                     ) : (
                       filteredSharedExpenses.map(exp => (
-                        <tr key={exp.id} className={exp.is_settled ? 'settled' : ''}>
+                        <tr 
+                          key={exp.id} 
+                          className={exp.is_settled ? 'settled' : ''}
+                          title="Dê duplo clique para marcar como Pendente ou Quitado"
+                          onDoubleClick={async () => {
+                             const novoStatus = !exp.is_settled;
+                             setSharedExpenses(prev => prev.map(e => e.id === exp.id ? { ...e, is_settled: novoStatus } : e));
+                             await supabase.from('shared_expenses').update({ is_settled: novoStatus }).eq('id', exp.id);
+                          }}
+                        >
                           <td data-label="Data" style={{ color: 'var(--text-muted)', fontWeight: 600 }}>
                              <input type="text" className="item-name-input" defaultValue={exp.date} onBlur={e => updateSharedField(exp.id, 'date', e.target.value)} />
                           </td>
