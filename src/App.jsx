@@ -67,7 +67,7 @@ export default function App() {
   
   // Compartilhados e Usuários Cadastrados
   const [sharedExpenses, setSharedExpenses] = useState([]);
-  const [appUsers, setAppUsers] = useState([]); // Lista dinâmica de usuários do banco
+  const [appUsers, setAppUsers] = useState([]); 
   
   // TEMA E EDIÇÃO DE PERFIL
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
@@ -123,7 +123,7 @@ export default function App() {
     if (isAuthenticated && loggedUser) {
       fetchUserData(loggedUser);
       fetchSharedExpenses();
-      fetchAppUsers(); // Busca todos os usuários pro Select de Compartilhados
+      fetchAppUsers(); 
     }
   }, [isAuthenticated, loggedUser]);
 
@@ -248,7 +248,7 @@ export default function App() {
 
         setLoggedName(newName);
         localStorage.setItem('fin_name', newName);
-        fetchAppUsers(); // Atualiza a lista na tela após alterar nome
+        fetchAppUsers(); 
         alert("Perfil atualizado com sucesso!");
         setIsProfileEditModalOpen(false);
         setIsProfileMenuOpen(false);
@@ -265,13 +265,11 @@ export default function App() {
   const [novoItemCor, setNovoItemCor] = useState(''); 
   const [draggedItem, setDraggedItem] = useState(null);
 
-  // Estados Nova Categoria
   const [isAddCategoryModalOpen, setIsAddCategoryModalOpen] = useState(false);
   const [novaCatNome, setNovaCatNome] = useState('');
   const [novaCatOp, setNovaCatOp] = useState('subtracao');
   const [novaCatCor, setNovaCatCor] = useState('#8B5CF6');
 
-  // SELEÇÃO MÚLTIPLA E MODAIS
   const [selectionMode, setSelectionMode] = useState(null); 
   const [selectedItems, setSelectedItems] = useState([]);
   
@@ -281,7 +279,6 @@ export default function App() {
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
   const [isAddSharedModalOpen, setIsAddSharedModalOpen] = useState(false);
 
-  // Estados de Gavetas (Drawers)
   const [showFaltaReceber, setShowFaltaReceber] = useState(false);
   const [showFaltaPagar, setShowFaltaPagar] = useState(false);
   const [showFaltaInvestir, setShowFaltaInvestir] = useState(false);
@@ -293,7 +290,7 @@ export default function App() {
 
   // --- ESTADOS DA ABA COMPARTILHADOS ---
   const [sharedTitle, setSharedTitle] = useState('');
-  const [sharedDate, setSharedDate] = useState(''); // <-- Estado para o campo de data
+  const [sharedDate, setSharedDate] = useState(''); 
   const [sharedDescription, setSharedDescription] = useState('');
   const [sharedAmount, setSharedAmount] = useState('');
   const [sharedPaidBy, setSharedPaidBy] = useState('');
@@ -301,8 +298,10 @@ export default function App() {
   
   const [filterMesShared, setFilterMesShared] = useState('Todos');
   const [filterAnoShared, setFilterAnoShared] = useState(anoAtualRef.toString());
+  const [sharedTab, setSharedTab] = useState('pendentes'); // 'pendentes' | 'pagos'
   
   const [settleModalOpen, setSettleModalOpen] = useState(false); 
+  const [itemsToSettle, setItemsToSettle] = useState([]);
 
   useEffect(() => {
     if (isAuthenticated && loggedUser && !sharedPaidBy) {
@@ -310,13 +309,12 @@ export default function App() {
     }
   }, [isAuthenticated, loggedUser, sharedPaidBy]);
 
-  // AUTO-SCROLL (MOBILE) COM SNAP NA PLANILHA
   useEffect(() => {
       if (abaAtual === 'lancamentos' && tableContainerRef.current && window.innerWidth <= 768) {
           setTimeout(() => {
               if (tableContainerRef.current) {
                   const currentMonthIndex = new Date().getMonth();
-                  const scrollPos = currentMonthIndex * 90; // 90px é a largura da coluna de mês no CSS
+                  const scrollPos = currentMonthIndex * 90;
                   tableContainerRef.current.scrollTo({ left: Math.max(0, scrollPos), behavior: 'smooth' });
               }
           }, 300);
@@ -331,7 +329,6 @@ export default function App() {
     return Array.from({ length: maxAno - minAno + 1 }, (_, i) => minAno + i);
   }, [valores]);
 
-  // CSS Variáveis Dinâmicas do Tema
   const themeStyles = useMemo(() => {
     let brand = '#0EA5E9', brandLight = '#E0F2FE', brandHover = '#0284C7';
     let bg = '#F0F9FF', surface = '#FFFFFF', textMain = '#0F172A', textMuted = '#64748B';
@@ -373,7 +370,6 @@ export default function App() {
     `;
   }, [themeConfig]);
 
-  // --- LÓGICA DE NEGÓCIO ---
   const atualizarValor = (mes, item, novoValor) => {
     const valorLimpo = novoValor.replace(/[^0-9.,]/g, '');
     const ano = `ano_${anoSelecionado}`;
@@ -595,7 +591,7 @@ export default function App() {
 
     setItemGroups(prev => {
       const novosGrupos = JSON.parse(JSON.stringify(prev));
-      if (novosGrupos[tipo] && novosGrupos[tipo][nomeAntigo] !== undefined) {
+      if (novosGrupos[tipo] && list[nomeAntigo] !== undefined) {
         novosGrupos[tipo][nomeLimpo] = novosGrupos[tipo][nomeAntigo];
         delete novosGrupos[tipo][nomeAntigo];
       }
@@ -702,7 +698,6 @@ export default function App() {
        return passMes && passAno;
     });
 
-    // Ordenação da mais recente para a mais antiga
     return filtered.sort((a, b) => {
        const [da, ma, ya] = a.date.split('/');
        const [db, mb, yb] = b.date.split('/');
@@ -711,6 +706,10 @@ export default function App() {
        return dateB - dateA;
     });
   }, [sharedExpenses, filterMesShared, filterAnoShared]);
+
+  const displayedSharedExpenses = useMemo(() => {
+    return filteredSharedExpenses.filter(exp => sharedTab === 'pendentes' ? !exp.is_settled : exp.is_settled);
+  }, [filteredSharedExpenses, sharedTab]);
 
   const splitwiseData = useMemo(() => {
     let myPaidTotal = 0;
@@ -739,11 +738,9 @@ export default function App() {
         if (exp.split_mode === '50_50') {
           myShare = exp.amount / 2;
         } else if (exp.split_mode === '100') {
-          // Se fui eu que paguei, minha parte da conta é 0 (o outro me deve tudo).
-          // Se foi o outro que pagou, minha parte é o valor integral (eu devo tudo).
           myShare = isMePaying ? 0 : exp.amount;
         } else if (exp.split_mode === `100_${loggedUser.toLowerCase()}`) {
-          myShare = exp.amount; // fallback para banco de dados antigo
+          myShare = exp.amount; 
         }
 
         if (isMePaying) {
@@ -1631,11 +1628,23 @@ export default function App() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {filteredSharedExpenses.filter(e => !e.is_settled).map(exp => {
                    const payerName = exp.paid_by === loggedUser ? 'Eu' : (appUsers.find(u => u.username === exp.paid_by)?.name || exp.paid_by);
+                   const isSelected = itemsToSettle.includes(exp.id);
                    return (
                      <div key={exp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: 'var(--bg-color)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                       <div>
-                         <strong style={{ fontSize: '0.8rem', color: 'var(--text-main)', display: 'block' }}>{exp.title}</strong>
-                         <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{payerName} pagou • {formatarMoeda(exp.amount)}</span>
+                       <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                         <input 
+                           type="checkbox" 
+                           checked={isSelected} 
+                           onChange={(e) => {
+                             if (e.target.checked) setItemsToSettle([...itemsToSettle, exp.id]);
+                             else setItemsToSettle(itemsToSettle.filter(id => id !== exp.id));
+                           }}
+                           style={{ transform: 'scale(1.2)', cursor: 'pointer' }}
+                         />
+                         <div>
+                           <strong style={{ fontSize: '0.8rem', color: 'var(--text-main)', display: 'block', textDecoration: isSelected ? 'none' : 'line-through', opacity: isSelected ? 1 : 0.5 }}>{exp.title}</strong>
+                           <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{payerName} pagou • {formatarMoeda(exp.amount)}</span>
+                         </div>
                        </div>
                      </div>
                    );
@@ -1643,21 +1652,23 @@ export default function App() {
                 {filteredSharedExpenses.filter(e => !e.is_settled).length === 0 && <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem' }}>Não há contas pendentes.</p>}
               </div>
               <div className="modal-actions">
-                <button className="btn-secondary" onClick={() => setSettleModalOpen(false)}>Fechar</button>
-                {filteredSharedExpenses.filter(e => !e.is_settled).length > 0 && (
-                  <button 
-                    className="btn-primary" 
-                    style={{ background: 'var(--green)' }} 
-                    onClick={async () => {
-                      const ids = filteredSharedExpenses.filter(e => !e.is_settled).map(e => e.id);
-                      setSharedExpenses(prev => prev.map(e => ids.includes(e.id) ? { ...e, is_settled: true } : e));
-                      await supabase.from('shared_expenses').update({ is_settled: true }).in('id', ids);
-                      setSettleModalOpen(false);
-                    }}
-                  >
-                    Quitar Tudo
-                  </button>
-                )}
+                <button className="btn-secondary" onClick={() => setSettleModalOpen(false)}>Cancelar</button>
+                <button 
+                  className="btn-primary" 
+                  style={{ 
+                    background: itemsToSettle.length > 0 ? 'var(--green)' : 'var(--text-muted)', 
+                    cursor: itemsToSettle.length > 0 ? 'pointer' : 'not-allowed' 
+                  }} 
+                  disabled={itemsToSettle.length === 0}
+                  onClick={async () => {
+                    if (itemsToSettle.length === 0) return;
+                    setSharedExpenses(prev => prev.map(e => itemsToSettle.includes(e.id) ? { ...e, is_settled: true } : e));
+                    await supabase.from('shared_expenses').update({ is_settled: true }).in('id', itemsToSettle);
+                    setSettleModalOpen(false);
+                  }}
+                >
+                  Quitar Selecionados ({itemsToSettle.length})
+                </button>
               </div>
             </div>
           </div>
@@ -1964,7 +1975,11 @@ export default function App() {
                     cursor: splitwiseData.myBalance !== 0 ? 'pointer' : 'default'
                   }}
                   onClick={() => {
-                    if (splitwiseData.myBalance !== 0) setSettleModalOpen(true);
+                    if (splitwiseData.myBalance !== 0) {
+                      const pendingIds = filteredSharedExpenses.filter(e => !e.is_settled).map(e => e.id);
+                      setItemsToSettle(pendingIds);
+                      setSettleModalOpen(true);
+                    }
                   }}
                   title={splitwiseData.myBalance !== 0 ? "Clique para gerenciar itens pendentes" : ""}
                 >
@@ -1981,14 +1996,18 @@ export default function App() {
               </div>
 
               <div className="controls-card">
-                <div style={{ display: 'flex', gap: '1rem', width: isMobile ? '100%' : 'auto' }}>
-                  <select className="form-select" value={filterMesShared} onChange={e => setFilterMesShared(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)', backgroundColor: 'var(--surface)' }}>
+                <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+                  <select className="form-select" value={filterMesShared} onChange={e => setFilterMesShared(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)' }}>
                     <option value="Todos">Mês: Todos</option>
                     {meses.map((m, i) => <option key={m} value={mesesNum[i]}>{m}</option>)}
                   </select>
-                  <select className="form-select" value={filterAnoShared} onChange={e => setFilterAnoShared(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)', backgroundColor: 'var(--surface)' }}>
+                  <select className="form-select" value={filterAnoShared} onChange={e => setFilterAnoShared(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)' }}>
                     <option value="Todos">Ano: Todos</option>
                     {listaAnos.map(ano => <option key={ano} value={ano}>{ano}</option>)}
+                  </select>
+                  <select className="form-select" value={sharedTab} onChange={e => setSharedTab(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)' }}>
+                    <option value="pendentes">Pendentes</option>
+                    <option value="pagos">Pagos</option>
                   </select>
                 </div>
                 <div>
@@ -2015,14 +2034,14 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredSharedExpenses.length === 0 ? (
-                      <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Nenhuma despesa listada.</td></tr>
+                    {displayedSharedExpenses.length === 0 ? (
+                      <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Nenhuma despesa nesta aba.</td></tr>
                     ) : (
-                      filteredSharedExpenses.map(exp => (
+                      displayedSharedExpenses.map(exp => (
                         <tr 
                           key={exp.id} 
                           className={exp.is_settled ? 'settled' : ''}
-                          title="Dê duplo clique para marcar como Pendente ou Quitado"
+                          title="Dê duplo clique para alternar entre Pendente e Quitado"
                           onDoubleClick={async () => {
                              const novoStatus = !exp.is_settled;
                              setSharedExpenses(prev => prev.map(e => e.id === exp.id ? { ...e, is_settled: novoStatus } : e));
