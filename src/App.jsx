@@ -284,17 +284,16 @@ export default function App() {
   const toggleFaltaCustom = (cat) => setShowFaltaCustom(prev => ({ ...prev, [cat]: !prev[cat] }));
 
   // --- ESTADOS DOS EVENTOS E LISTAS ---
-  const [eventViewMode, setEventViewMode] = useState('calendar'); // 'calendar' | 'list'
+  const [eventViewMode, setEventViewMode] = useState('calendar');
   const [calMonth, setCalMonth] = useState(new Date().getMonth());
   const [calYear, setCalYear] = useState(new Date().getFullYear());
-  const [viewingListId, setViewingListId] = useState(null); // Para a visão "listas" dentro de eventos
+  const [viewingListId, setViewingListId] = useState(null); 
   
   const [isEventModalOpen, setIsEventModalOpen] = useState(false);
   const [isEventViewModalOpen, setIsEventViewModalOpen] = useState(false);
   const [viewingEvent, setViewingEvent] = useState(null);
   const [isIconPickerOpen, setIsIconPickerOpen] = useState(false);
   
-  // Controle do Lightbox
   const [lightbox, setLightbox] = useState({ isOpen: false, images: [], index: 0 });
   
   const [isCatEventModalOpen, setIsCatEventModalOpen] = useState(false);
@@ -312,7 +311,6 @@ export default function App() {
     categoria: 'Geral', isShared: false, sharedWith: [], lugar: '', imagens: [], owner: ''
   });
 
-  // Swipe gesture variables
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
 
@@ -324,8 +322,6 @@ export default function App() {
   const [sharedPaidBy, setSharedPaidBy] = useState('');
   const [sharedSplitMode, setSharedSplitMode] = useState('50_50');
   
-  const [filterMesShared, setFilterMesShared] = useState('Todos');
-  const [filterAnoShared, setFilterAnoShared] = useState(anoAtualRef.toString());
   const [sharedTab, setSharedTab] = useState('pendentes'); 
   const [settleModalOpen, setSettleModalOpen] = useState(false); 
   const [itemsToSettle, setItemsToSettle] = useState([]);
@@ -612,28 +608,25 @@ export default function App() {
     setSharedExpenses(prev => prev.map(exp => exp.id === id ? { ...exp, [field]: value } : exp));
     await supabase.from('shared_expenses').update({ [field]: value }).eq('id', id);
   };
+  
   const handleDeleteSharedExpense = async (id) => {
     if(window.confirm("Deseja realmente excluir essa conta?")) {
       setSharedExpenses(prev => prev.filter(exp => exp.id !== id));
       await supabase.from('shared_expenses').delete().eq('id', id);
     }
   };
+
   const filteredSharedExpenses = useMemo(() => {
-    return sharedExpenses.filter(exp => {
-       const parts = exp.date.split('/'); 
-       if (parts.length !== 3) return true;
-       const [, m, y] = parts;
-       const passMes = filterMesShared === 'Todos' || m === filterMesShared;
-       const passAno = filterAnoShared === 'Todos' || y === filterAnoShared;
-       return passMes && passAno;
-    }).sort((a, b) => {
+    return sharedExpenses.sort((a, b) => {
        const [da, ma, ya] = a.date.split('/'); const [db, mb, yb] = b.date.split('/');
        return new Date(yb, mb - 1, db) - new Date(ya, ma - 1, da);
     });
-  }, [sharedExpenses, filterMesShared, filterAnoShared]);
+  }, [sharedExpenses]);
+
   const displayedSharedExpenses = useMemo(() => {
     return filteredSharedExpenses.filter(exp => sharedTab === 'pendentes' ? !exp.is_settled : exp.is_settled);
   }, [filteredSharedExpenses, sharedTab]);
+
   const splitwiseData = useMemo(() => {
     let myPaidTotal = 0; let partnerPaidTotal = 0; let myBalance = 0;
     let partnerName = 'Grupo';
@@ -805,13 +798,11 @@ export default function App() {
   const handleRSVP = async (status) => {
     const newRsvp = { event_id: viewingEvent.id, username: loggedUser, status };
     
-    // Atualiza localmente imediato
     setEventRsvps(prev => {
       const filtered = prev.filter(r => !(r.event_id === viewingEvent.id && r.username.toLowerCase() === loggedUser.toLowerCase()));
       return [...filtered, newRsvp];
     });
 
-    // Atualiza no banco
     await supabase.from('app_rsvps').upsert(newRsvp, { onConflict: 'event_id, username' });
   }
 
@@ -1066,7 +1057,7 @@ export default function App() {
         .totals-row td { position: sticky; bottom: 0; z-index: 40; padding: 0 0.5rem; font-weight: 800; font-size: 0.72rem; text-align: center; white-space: nowrap; border-top: 2px solid var(--border-dark); background-color: var(--highlight-bg); box-shadow: 0 -4px 10px rgba(0,0,0,0.05); vertical-align: middle;}
         .totals-row td.sticky-col { text-align: left; padding-left: 1.5rem; z-index: 50; }
 
-        .dash-container { overflow-y: auto; height: 100%; display: flex; flex-direction: column; position: relative; }
+        .dash-container { overflow-y: auto; overflow-x: hidden; height: 100%; display: flex; flex-direction: column; position: relative; }
         .dash-header-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
         .dash-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
         .card { background: var(--surface); border-radius: 12px; padding: 1rem 1.2rem; border: 1px solid var(--border); box-shadow: 0 4px 15px rgba(0, 0, 0, 0.03); display: flex; flex-direction: column; gap: 0.2rem; justify-content: center;}
@@ -1098,11 +1089,12 @@ export default function App() {
         /* CALENDÁRIO */
         .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; width: 100%; padding-bottom: 10px; user-select: none; }
         .calendar-day-header { text-align: center; font-weight: 800; font-size: 0.6rem; color: var(--brand); padding: 0.5rem; background: var(--highlight-bg); border-radius: 8px; text-transform: uppercase;}
-        .calendar-cell { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; min-height: 100px; padding: 0.4rem; display: flex; flex-direction: column; gap: 4px; }
+        .calendar-cell { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; min-height: 100px; padding: 0.4rem; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
         .calendar-cell.empty { background: transparent; border: none; }
         .calendar-cell.today { border: 2px solid var(--brand); background: var(--highlight-bg); }
         .calendar-date { font-weight: 800; font-size: 0.7rem; color: var(--text-muted); align-self: flex-end; margin-bottom: 4px; }
-        .event-chip { padding: 4px 6px; border-radius: 6px; font-size: 0.55rem; font-weight: 700; color: white; display: flex; align-items: center; gap: 4px; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        .event-chip { padding: 4px 6px; border-radius: 6px; font-size: 0.55rem; font-weight: 700; color: white; display: flex; align-items: center; gap: 4px; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.1); width: 100%; box-sizing: border-box; overflow: hidden; }
+        .ev-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
         .event-list-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.2rem; display: flex; gap: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.03); align-items: flex-start; cursor: pointer; transition: 0.2s; }
         .event-list-card:hover { border-color: var(--brand); transform: translateY(-2px); }
         
@@ -1136,9 +1128,8 @@ export default function App() {
           .controls-card > div { display: flex !important; flex-direction: row !important; flex-wrap: nowrap !important; width: auto !important; gap: 0.4rem !important; align-items: center !important; }
           
           /* EXCEÇÃO PARA CONTAS E EVENTOS - MOBILE */
-          .shared-controls { flex-direction: column !important; align-items: stretch !important; height: auto !important;}
-          .shared-controls > div { flex-direction: column !important; width: 100% !important; align-items: stretch !important; gap: 10px !important;}
-          .shared-controls select, .shared-controls button { width: 100% !important; }
+          .shared-controls { flex-direction: row !important; align-items: center !important; height: auto !important;}
+          .shared-controls > div { flex-direction: row !important; width: auto !important; align-items: center !important; gap: 10px !important;}
 
           .events-header-controls { flex-direction: row !important; align-items: center !important; flex-wrap: wrap; gap: 10px; }
           .events-header-left { flex-direction: row !important; width: auto !important; flex: 1; }
@@ -1479,8 +1470,8 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)' }}>Nome da Lista:</label>
-                  <input type="text" className="form-input" style={{ width: '100%', marginTop: '5px' }} placeholder="Ex: Viagens, Reuniões, Pessoal..." value={newCatEventName} onChange={(e) => setNewCatEventName(e.target.value)} autoFocus/>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '5px' }}>Nome da Lista:</label>
+                  <input type="text" className="form-input" style={{ width: '100%' }} placeholder="Ex: Viagens, Reuniões, Pessoal..." value={newCatEventName} onChange={(e) => setNewCatEventName(e.target.value)} autoFocus/>
                 </div>
                 
                 <div style={{ marginTop: '5px', display: 'flex', flexDirection: 'column', gap: '5px', background: 'var(--bg-color)', padding: '10px', borderRadius: '8px' }}>
@@ -2111,7 +2102,7 @@ export default function App() {
           )}
 
           {/* ========================================================= */}
-          {/* TELA: COMPARTILHADOS (SPLITWISE)                          */}
+          {/* TELA: COMPARTILHADOS (SPLITWISE)                            */}
           {/* ========================================================= */}
           {abaAtual === 'compartilhados' && (
             <div className="dash-container hide-scroll">
@@ -2137,14 +2128,6 @@ export default function App() {
 
               <div className="controls-card shared-controls">
                 <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <select className="form-select" value={filterMesShared} onChange={e => setFilterMesShared(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)' }}>
-                    <option value="Todos">Mês: Todos</option>
-                    {meses.map((m, i) => <option key={m} value={mesesNum[i]}>{m}</option>)}
-                  </select>
-                  <select className="form-select" value={filterAnoShared} onChange={e => setFilterAnoShared(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)' }}>
-                    <option value="Todos">Ano: Todos</option>
-                    {listaAnos.map(ano => <option key={ano} value={ano}>{ano}</option>)}
-                  </select>
                   <select className="form-select" value={sharedTab} onChange={e => setSharedTab(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)' }}>
                     <option value="pendentes">Pendentes</option>
                     <option value="pagos">Pagos</option>
@@ -2154,20 +2137,45 @@ export default function App() {
               </div>
 
               <div className="table-container hide-scroll">
+                <div style={{ textAlign: 'center', fontSize: '1.2rem', fontWeight: 900, color: 'var(--brand)', margin: '15px 0 10px 0', textTransform: 'uppercase' }}>
+                  {sharedTab === 'pendentes' ? 'PENDENTES' : 'PAGOS'}
+                </div>
                 {isMobile ? (
                    <div style={{ padding: '0 0.5rem 1rem 0.5rem' }}>
                       {displayedSharedExpenses.length === 0 ? (
                         <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Nenhuma despesa nesta aba.</p>
                       ) : (
                         displayedSharedExpenses.map(exp => (
-                           <div key={exp.id} style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-dark)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', opacity: exp.is_settled ? 0.6 : 1, boxShadow: '0 4px 10px rgba(0,0,0,0.03)' }} onClick={() => handleOpenSharedModal(exp)}>
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                 <span style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--text-main)', textDecoration: exp.is_settled ? 'line-through' : 'none' }}>{exp.title}</span>
-                                 <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{exp.date} • {exp.paid_by === loggedUser ? 'Eu paguei' : (appUsers.find(u=>u.username===exp.paid_by)?.name || exp.paid_by) + ' pagou'}</span>
+                           <div 
+                             key={exp.id} 
+                             onClick={() => handleOpenSharedModal(exp)}
+                             style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-dark)', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '10px', opacity: exp.is_settled ? 0.6 : 1, boxShadow: '0 4px 10px rgba(0,0,0,0.03)', cursor: 'pointer' }}
+                           >
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                    <span style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--text-main)', textDecoration: exp.is_settled ? 'line-through' : 'none' }}>{exp.title}</span>
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{exp.date} • {exp.paid_by === loggedUser ? 'Eu paguei' : (appUsers.find(u=>u.username===exp.paid_by)?.name || exp.paid_by) + ' pagou'}</span>
+                                 </div>
+                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                                    <span style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--red)' }}>{formatarMoeda(exp.amount)}</span>
+                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', background: 'var(--bg-color)', padding: '2px 6px', borderRadius: '4px' }}>{exp.split_mode === '50_50' ? 'Divisão 50%' : 'Divisão 100%'}</span>
+                                 </div>
                               </div>
-                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                                 <span style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--red)' }}>{formatarMoeda(exp.amount)}</span>
-                                 <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', background: 'var(--bg-color)', padding: '2px 6px', borderRadius: '4px' }}>{exp.split_mode === '50_50' ? 'Divisão 50%' : 'Divisão 100%'}</span>
+                              
+                              {/* actions footer inside mobile card */}
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '10px' }} onClick={e => e.stopPropagation()}>
+                                 <select
+                                   className="form-select"
+                                   style={{ width: 'auto', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 800 }}
+                                   value={exp.is_settled ? 'pago' : 'pendente'}
+                                   onChange={(e) => updateSharedField(exp.id, 'is_settled', e.target.value === 'pago')}
+                                 >
+                                   <option value="pendente">Pendente</option>
+                                   <option value="pago">Pago</option>
+                                 </select>
+                                 <div style={{ display: 'flex', gap: '5px' }}>
+                                   <button className="action-btn del-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', background: 'var(--red-bg)', color: 'var(--red)', fontWeight: 700 }} onClick={(e) => { e.stopPropagation(); handleDeleteSharedExpense(exp.id); }}>Excluir</button>
+                                 </div>
                               </div>
                            </div>
                         ))
@@ -2176,7 +2184,7 @@ export default function App() {
                 ) : (
                   <table className="shared-table">
                     <thead>
-                      <tr><th>Data</th><th>Item</th><th>Descrição</th><th>Quem Pagou?</th><th>Divisão</th><th>Valor (R$)</th><th style={{width: '40px', textAlign: 'center'}}></th></tr>
+                      <tr><th>Data</th><th>Item</th><th>Descrição</th><th>Quem Pagou?</th><th>Divisão</th><th>Valor (R$)</th><th style={{width: '150px', textAlign: 'center'}}>Ações</th></tr>
                     </thead>
                     <tbody>
                       {displayedSharedExpenses.length === 0 ? (
@@ -2201,8 +2209,17 @@ export default function App() {
                             <td data-label="Valor (R$)">
                               <input type="text" className="item-name-input" style={{ fontWeight: 700, color: 'var(--red)' }} defaultValue={formatarMoeda(exp.amount)} onBlur={e => { const val = parseFloat(e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.')); if(!isNaN(val)) updateSharedField(exp.id, 'amount', val); }} />
                             </td>
-                            <td data-label="Ações" className="action-cell" style={{textAlign: 'center', borderBottom: 'none'}}>
-                              <button className="action-btn del-btn" onClick={() => handleDeleteSharedExpense(exp.id)} title="Excluir">🗑️</button>
+                            <td data-label="Ações" className="action-cell" style={{ display: 'flex', gap: '5px', alignItems: 'center', justifyContent: 'center', borderBottom: 'none', height: '100%', minHeight: '40px' }}>
+                              <select
+                                className="form-select"
+                                style={{ width: 'auto', padding: '4px 8px', fontSize: '0.65rem', marginRight: '5px', fontWeight: 700 }}
+                                value={exp.is_settled ? 'pago' : 'pendente'}
+                                onChange={(e) => updateSharedField(exp.id, 'is_settled', e.target.value === 'pago')}
+                              >
+                                <option value="pendente">Pendente</option>
+                                <option value="pago">Pago</option>
+                              </select>
+                              <button className="action-btn del-btn" style={{ padding: '4px 8px', background: 'var(--red-bg)', color: 'var(--red)', fontWeight: 700, fontSize: '0.65rem' }} onClick={() => handleDeleteSharedExpense(exp.id)}>Excluir</button>
                             </td>
                           </tr>
                         ))
@@ -2415,7 +2432,7 @@ export default function App() {
           )}
 
           {/* ========================================================= */}
-          {/* TELA: VISÃO GERAL (DASHBOARD)                             */}
+          {/* TELA: VISÃO GERAL (DASHBOARD)                               */}
           {/* ========================================================= */}
           {abaAtual === 'dashboard' && (
             <div className="dash-container hide-scroll">
