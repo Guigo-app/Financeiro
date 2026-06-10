@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import OneSignal from 'react-onesignal';
 
 // --- CONFIGURAÇÃO SUPABASE ---
 const SUPABASE_URL = 'https://ufeocwgdamkdswdgxcrn.supabase.co';
@@ -8,13 +9,12 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const meses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-const mesesNum = ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11', '12'];
 const anoAtualRef = new Date().getFullYear();
 
 // Paleta de 10 cores
 const PALETA_CORES = ['#EF4444', '#F97316', '#F59E0B', '#84CC16', '#10B981', '#06B6D4', '#3B82F6', '#8B5CF6', '#D946EF', '#EC4899'];
 
-// Lista de Ícones para os Eventos
+// Lista de Ícones para os Eventos e Grupos
 const LISTA_ICONES = ['📁','📅','🎉','✈️','💼','🎂','🛒','🍔','🏥','🎮','🎓','🎬','⚽','🎸','🏖️','🚗','💰','❤️','✨','🔥','🎤','📚','🏠','🐶','🍻','☕','🛠️','🦷','⛪','🏃','🧘'];
 
 // Temas do App
@@ -39,6 +39,9 @@ export default function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // --- INICIALIZAÇÃO DO ONESIGNAL ---
+  const [pushPermission, setPushPermission] = useState('default');
+
   // --- ESTADOS DE AUTENTICAÇÃO E CARREGAMENTO ---
   const [loggedUser, setLoggedUser] = useState(() => localStorage.getItem('fin_user') || '');
   const [loggedName, setLoggedName] = useState(() => localStorage.getItem('fin_name') || '');
@@ -55,6 +58,26 @@ export default function App() {
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
+
+  useEffect(() => {
+    async function initOneSignal() {
+      try {
+        await OneSignal.init({
+          appId: "3f3ffd82-dba1-4316-ba8e-792f9e0c83b6",
+          safari_web_id: "web.onesignal.auto.3e92607c-8739-4c7c-a9d2-0fad99546ed2",
+          notifyButton: { enable: false }
+        });
+
+        if (isAuthenticated && loggedUser) {
+          await OneSignal.login(loggedUser);
+        }
+      } catch (err) {
+        console.error('Erro ao inicializar OneSignal:', err);
+      }
+    }
+
+    initOneSignal();
+  }, [isAuthenticated, loggedUser]);
 
   const tableContainerRef = useRef(null); 
 
@@ -74,6 +97,21 @@ export default function App() {
   const [categoriasEventos, setCategoriasEventos] = useState([{ id: 'default', nome: 'Geral', sharedWith: [], icon: '📁', color: '#3B82F6' }]);
   const [allUsersData, setAllUsersData] = useState([]); 
   const [eventRsvps, setEventRsvps] = useState([]); 
+
+  // --- ESTADOS DE GRUPOS DE CONTAS ---
+  const [gruposContas, setGruposContas] = useState([]);
+  const [grupoContasSelecionado, setGrupoContasSelecionado] = useState(null);
+  const [membrosGrupoSelecionado, setMembrosGrupoSelecionado] = useState([]);
+  const [qtdMembrosGrupo, setQtdMembrosGrupo] = useState(1);
+  
+  // Formulário do Grupo
+  const [isCriarGrupoModalOpen, setIsCriarGrupoModalOpen] = useState(false);
+  const [editandoGrupoId, setEditandoGrupoId] = useState(null);
+  const [novoGrupoNome, setNovoGrupoNome] = useState('');
+  const [novoGrupoIcone, setNovoGrupoIcone] = useState('🏠');
+  const [novoGrupoCor, setNovoGrupoCor] = useState('#0EA5E9');
+  const [novoGrupoUsuarios, setNovoGrupoUsuarios] = useState([]);
+  const [isGrupoIconPickerOpen, setIsGrupoIconPickerOpen] = useState(false);
   
   // TEMA E EDIÇÃO DE PERFIL
   const [isThemeModalOpen, setIsThemeModalOpen] = useState(false);
@@ -132,8 +170,19 @@ export default function App() {
 
   const fetchAppUsers = async () => {
     try {
-      const { data, error } = await supabase.from('app_users').select('username, name');
-      if (data) setAppUsers(data);
+      const { data, error } = await supabase.from('app_users').select('id, username, name');
+      if (data) {
+        setAppUsers(data);
+        // Traz também os Grupos aos quais o usuário logado pertence
+        const currentUser = data.find(u => u.username === loggedUser);
+        if (currentUser) {
+            const { data: gData } = await supabase
+                .from('grupo_usuarios')
+                .select('grupos ( id, nome, icone, cor )')
+                .eq('usuario_id', currentUser.id);
+            if (gData) setGruposContas(gData.map(d => d.grupos));
+        }
+      }
     } catch (e) {
       console.error('Erro ao buscar usuários:', e);
     }
@@ -146,6 +195,23 @@ export default function App() {
       fetchAppUsers(); 
     }
   }, [isAuthenticated, loggedUser]);
+
+  // Atualiza quantidade de membros e Ids sempre que um grupo é aberto
+  useEffect(() => {
+    if (grupoContasSelecionado) {
+        const fetchMembros = async () => {
+            const { data: membrosData } = await supabase
+              .from('grupo_usuarios')
+              .select('usuario_id')
+              .eq('grupo_id', grupoContasSelecionado.id);
+            
+            const idsMembros = membrosData ? membrosData.map(m => m.usuario_id) : [];
+            setMembrosGrupoSelecionado(idsMembros);
+            setQtdMembrosGrupo(idsMembros.length || 1);
+        };
+        fetchMembros();
+    }
+  }, [grupoContasSelecionado]);
 
   // --- AUTO-SAVE PARA O SUPABASE ---
   useEffect(() => {
@@ -219,6 +285,7 @@ export default function App() {
     setLoginInputPass('');
     setCategorias({ Rendas: [], Gastos: [], Investimentos: [] });
     setCategoryConfigs({}); setValores({}); setEventos([]); setCategoriasEventos([]); setAllUsersData([]); setEventRsvps([]);
+    setGrupoContasSelecionado(null);
   };
 
   const salvarEdicaoPerfil = async () => {
@@ -314,7 +381,7 @@ export default function App() {
   const [touchStart, setTouchStart] = useState(null);
   const [touchEnd, setTouchEnd] = useState(null);
 
-  // --- ESTADOS DA ABA COMPARTILHADOS ---
+  // --- ESTADOS DA ABA COMPARTILHADOS (CONTAS DO GRUPO) ---
   const [sharedTitle, setSharedTitle] = useState('');
   const [sharedDate, setSharedDate] = useState(''); 
   const [sharedDescription, setSharedDescription] = useState('');
@@ -326,7 +393,12 @@ export default function App() {
   const [settleModalOpen, setSettleModalOpen] = useState(false); 
   const [itemsToSettle, setItemsToSettle] = useState([]);
 
-  useEffect(() => { if (isAuthenticated && loggedUser && !sharedPaidBy) setSharedPaidBy(loggedUser); }, [isAuthenticated, loggedUser, sharedPaidBy]);
+  useEffect(() => { 
+    // Garante que o sharedPaidBy seja pelo menos preenchido, mas se o current user não estiver no grupo, pega o primeiro membro.
+    if (isAuthenticated && loggedUser && !sharedPaidBy) {
+       setSharedPaidBy(loggedUser);
+    } 
+  }, [isAuthenticated, loggedUser, sharedPaidBy]);
 
   useEffect(() => {
       if (abaAtual === 'lancamentos' && tableContainerRef.current && window.innerWidth <= 768) {
@@ -563,7 +635,96 @@ export default function App() {
     setDraggedItem(null);
   };
 
-  // --- CONTAS COMPARTILHADAS ---
+  // --- CRIAÇÃO E CONTROLE DOS GRUPOS DE CONTAS ---
+  const handleToggleGrupoUser = (id) => {
+    setNovoGrupoUsuarios(prev => prev.includes(id) ? prev.filter(uid => uid !== id) : [...prev, id]);
+  };
+
+  const handleOpenGrupoModal = (grupo = null) => {
+    if (grupo) {
+        setEditandoGrupoId(grupo.id);
+        setNovoGrupoNome(grupo.nome);
+        setNovoGrupoIcone(grupo.icone);
+        setNovoGrupoCor(grupo.cor || '#0EA5E9');
+        setNovoGrupoUsuarios(membrosGrupoSelecionado);
+    } else {
+        setEditandoGrupoId(null);
+        setNovoGrupoNome('');
+        setNovoGrupoIcone('🏠');
+        setNovoGrupoCor('#0EA5E9');
+        
+        // Se for grupo novo, seleciona automaticamente quem está logado
+        const currentUser = appUsers.find(u => u.username === loggedUser);
+        setNovoGrupoUsuarios(currentUser ? [currentUser.id] : []);
+    }
+    setIsCriarGrupoModalOpen(true);
+  };
+
+  const handleSalvarGrupo = async (e) => {
+    e.preventDefault();
+    if (!novoGrupoNome.trim()) return alert("Digite um nome para o grupo!");
+    if (novoGrupoUsuarios.length === 0) return alert("Selecione pelo menos um participante!");
+
+    setIsLoading(true);
+    
+    if (editandoGrupoId) {
+        // 1. Atualizar informações do Grupo
+        await supabase
+          .from('grupos')
+          .update({ nome: novoGrupoNome.trim(), icone: novoGrupoIcone, cor: novoGrupoCor })
+          .eq('id', editandoGrupoId);
+          
+        // 2. Deletar os membros antigos
+        await supabase.from('grupo_usuarios').delete().eq('grupo_id', editandoGrupoId);
+        
+        // 3. Inserir novos membros
+        const relacoes = novoGrupoUsuarios.map(uid => ({
+            grupo_id: editandoGrupoId,
+            usuario_id: uid
+        }));
+        await supabase.from('grupo_usuarios').insert(relacoes);
+        
+        // 4. Atualizar os states locais
+        setGrupoContasSelecionado(prev => ({...prev, nome: novoGrupoNome.trim(), icone: novoGrupoIcone, cor: novoGrupoCor}));
+        setMembrosGrupoSelecionado(novoGrupoUsuarios);
+        setQtdMembrosGrupo(novoGrupoUsuarios.length);
+
+    } else {
+        // Criar Novo Grupo
+        const { data: novoGrupo, error: erroGrupo } = await supabase
+          .from('grupos')
+          .insert([{ nome: novoGrupoNome.trim(), icone: novoGrupoIcone, cor: novoGrupoCor }])
+          .select()
+          .single();
+
+        if (!erroGrupo && novoGrupo) {
+            const relacoes = novoGrupoUsuarios.map(uid => ({
+                grupo_id: novoGrupo.id,
+                usuario_id: uid
+            }));
+            await supabase.from('grupo_usuarios').insert(relacoes);
+        } else {
+            alert("Erro ao criar grupo no banco de dados.");
+            console.error(erroGrupo);
+        }
+    }
+
+    setIsCriarGrupoModalOpen(false);
+    
+    // Recarrega os grupos do usuário atual para atualizar a view principal
+    const currentUser = appUsers.find(u => u.username === loggedUser);
+    if (currentUser) {
+        const { data: gData } = await supabase
+            .from('grupo_usuarios')
+            .select('grupos ( id, nome, icone, cor )')
+            .eq('usuario_id', currentUser.id);
+        if (gData) setGruposContas(gData.map(d => d.grupos));
+    }
+    
+    setIsLoading(false);
+  };
+
+  // --- CONTAS COMPARTILHADAS (VINCULADAS AO GRUPO SELECIONADO) ---
   const handleOpenSharedModal = (exp = null) => {
     if (exp) {
       setEditingSharedId(exp.id);
@@ -579,7 +740,15 @@ export default function App() {
       setSharedTitle('');
       setSharedAmount('');
       setSharedDescription('');
-      setSharedPaidBy(loggedUser);
+      
+      // Se for criar conta e a pessoa logada for do grupo, usa ela. Se não, usa o primeiro do grupo.
+      const userLogadoNaLista = appUsers.find(u => u.username === loggedUser && membrosGrupoSelecionado.includes(u.id));
+      if (userLogadoNaLista) {
+          setSharedPaidBy(userLogadoNaLista.username);
+      } else {
+          const primeiroUserDoGrupo = appUsers.find(u => membrosGrupoSelecionado.includes(u.id));
+          setSharedPaidBy(primeiroUserDoGrupo ? primeiroUserDoGrupo.username : '');
+      }
       setSharedSplitMode('50_50');
     }
     setIsAddSharedModalOpen(true);
@@ -593,11 +762,11 @@ export default function App() {
     if (sharedDate) { const [y, m, d] = sharedDate.split('-'); formattedDate = `${d}/${m}/${y}`; }
     
     if (editingSharedId) {
-       const updatedExp = { id: editingSharedId, date: formattedDate, title: sharedTitle.trim(), description: sharedDescription.trim(), amount: numAmount, paid_by: sharedPaidBy, split_mode: sharedSplitMode, is_settled: false };
+       const updatedExp = { id: editingSharedId, date: formattedDate, title: sharedTitle.trim(), description: sharedDescription.trim(), amount: numAmount, paid_by: sharedPaidBy, split_mode: sharedSplitMode, is_settled: false, grupo_id: grupoContasSelecionado.id };
        setSharedExpenses(prev => prev.map(e => e.id === editingSharedId ? updatedExp : e));
        await supabase.from('shared_expenses').update(updatedExp).eq('id', editingSharedId);
     } else {
-       const newExpense = { id: Date.now(), date: formattedDate, title: sharedTitle.trim(), description: sharedDescription.trim(), amount: numAmount, paid_by: sharedPaidBy, split_mode: sharedSplitMode, is_settled: false };
+       const newExpense = { id: Date.now(), date: formattedDate, title: sharedTitle.trim(), description: sharedDescription.trim(), amount: numAmount, paid_by: sharedPaidBy, split_mode: sharedSplitMode, is_settled: false, grupo_id: grupoContasSelecionado.id };
        setSharedExpenses([newExpense, ...sharedExpenses]);
        await supabase.from('shared_expenses').insert([newExpense]);
     }
@@ -617,11 +786,13 @@ export default function App() {
   };
 
   const filteredSharedExpenses = useMemo(() => {
-    return sharedExpenses.sort((a, b) => {
-       const [da, ma, ya] = a.date.split('/'); const [db, mb, yb] = b.date.split('/');
-       return new Date(yb, mb - 1, db) - new Date(ya, ma - 1, da);
-    });
-  }, [sharedExpenses]);
+    return sharedExpenses
+      .filter(exp => exp.grupo_id === grupoContasSelecionado?.id)
+      .sort((a, b) => {
+         const [da, ma, ya] = a.date.split('/'); const [db, mb, yb] = b.date.split('/');
+         return new Date(yb, mb - 1, db) - new Date(ya, ma - 1, da);
+      });
+  }, [sharedExpenses, grupoContasSelecionado]);
 
   const displayedSharedExpenses = useMemo(() => {
     return filteredSharedExpenses.filter(exp => sharedTab === 'pendentes' ? !exp.is_settled : exp.is_settled);
@@ -630,25 +801,31 @@ export default function App() {
   const splitwiseData = useMemo(() => {
     let myPaidTotal = 0; let partnerPaidTotal = 0; let myBalance = 0;
     let partnerName = 'Grupo';
-    const others = appUsers.filter(u => u.username !== loggedUser);
+    
+    // Busca parceiro principal para exibir no card (Simplificado)
+    const others = appUsers.filter(u => u.username !== loggedUser && membrosGrupoSelecionado.includes(u.id));
     if (others.length === 1) { partnerName = others[0].name; } 
     else if (others.length > 1) {
       const otherUserInExpenses = filteredSharedExpenses.find(e => e.paid_by !== loggedUser)?.paid_by;
       if (otherUserInExpenses) partnerName = appUsers.find(u => u.username === otherUserInExpenses)?.name || 'Parceiro';
     }
+
     filteredSharedExpenses.forEach(exp => {
       const isMePaying = exp.paid_by === loggedUser;
       if (isMePaying) myPaidTotal += exp.amount; else partnerPaidTotal += exp.amount;
+      
       if (!exp.is_settled) {
         let myShare = 0;
-        if (exp.split_mode === '50_50') myShare = exp.amount / 2;
+        if (exp.split_mode === '50_50') myShare = exp.amount / qtdMembrosGrupo; // Divisão baseada no qtd do grupo
         else if (exp.split_mode === '100') myShare = isMePaying ? 0 : exp.amount;
         else if (exp.split_mode === `100_${loggedUser.toLowerCase()}`) myShare = exp.amount; 
+        
         if (isMePaying) myBalance += (exp.amount - myShare); else myBalance -= myShare; 
       }
     });
     return { myBalance, myPaidTotal, partnerPaidTotal, partnerName };
-  }, [filteredSharedExpenses, loggedUser, appUsers]);
+  }, [filteredSharedExpenses, loggedUser, appUsers, qtdMembrosGrupo, membrosGrupoSelecionado]);
+
 
   // --- FUNÇÕES DOS EVENTOS E LISTAS ---
   const allAvailableLists = useMemo(() => {
@@ -1192,6 +1369,78 @@ export default function App() {
         </div>
       )}
 
+      {/* --- NOVO MODAL: CRIAR / EDITAR GRUPO DE CONTAS --- */}
+      {isCriarGrupoModalOpen && (
+        <div className="modal-overlay" onClick={() => setIsCriarGrupoModalOpen(false)} style={{ zIndex: 1100 }}>
+          <div className="theme-modal" onClick={e => e.stopPropagation()} style={{ height: 'max-content', maxHeight: '90vh' }}>
+            <div className="theme-header">
+              <button className="theme-btn-back" onClick={() => setIsCriarGrupoModalOpen(false)}> <CloseIcon /> </button>
+              <div>
+                <h1 style={{fontSize: '1.3rem', fontWeight: 900, color: 'var(--text-main)', margin: 0, lineHeight: 1}}>{editandoGrupoId ? 'Editar Grupo' : 'Novo Grupo'}</h1>
+                <p style={{fontSize: '0.6rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--brand)', margin: 0}}>DIVISÃO DE CONTAS</p>
+              </div>
+            </div>
+            <div className="theme-body">
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+                
+                <div style={{ display: 'flex', gap: '15px', alignItems: 'center' }}>
+                  <div style={{ position: 'relative' }}>
+                    <button 
+                      className="form-input" 
+                      style={{ width: '50px', height: '50px', fontSize: '1.5rem', textAlign: 'center', padding: '0', borderRadius: '12px', background: 'var(--surface)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+                      onClick={() => setIsGrupoIconPickerOpen(!isGrupoIconPickerOpen)}
+                      title="Escolher Ícone do Grupo"
+                    >
+                      {novoGrupoIcone}
+                    </button>
+                    {isGrupoIconPickerOpen && (
+                      <>
+                        <div style={{ position: 'fixed', inset: 0, zIndex: 90 }} onClick={() => setIsGrupoIconPickerOpen(false)}></div>
+                        <div style={{ position: 'absolute', top: '60px', left: 0, zIndex: 100, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '12px', padding: '10px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', boxShadow: '0 10px 30px rgba(0,0,0,0.15)', width: 'max-content' }}>
+                          {LISTA_ICONES.map(ic => (
+                            <span key={ic} style={{ fontSize: '1.5rem', cursor: 'pointer', padding: '4px', textAlign: 'center', borderRadius: '8px', background: novoGrupoIcone === ic ? 'var(--highlight-bg)' : 'transparent' }} onClick={() => { setNovoGrupoIcone(ic); setIsGrupoIconPickerOpen(false); }}>{ic}</span>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '8px', flex: 1 }}>
+                    {PALETA_CORES.map(cor => (
+                      <button
+                        key={`grpColor-${cor}`}
+                        style={{ width: '28px', height: '28px', borderRadius: '50%', backgroundColor: cor, border: novoGrupoCor === cor ? '3px solid var(--text-main)' : '2px solid var(--surface)', cursor: 'pointer', transition: '0.2s' }}
+                        onClick={() => setNovoGrupoCor(cor)}
+                      />
+                    ))}
+                  </div>
+                </div>
+                
+                <div style={{ flex: 1 }}>
+                  <label style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-muted)', display: 'block', marginBottom: '5px' }}>Nome do Grupo:</label>
+                  <input type="text" className="form-input" style={{ width: '100%' }} placeholder="Ex: Casa, Churrasco..." value={novoGrupoNome} onChange={(e) => setNovoGrupoNome(e.target.value)} autoFocus/>
+                </div>
+                
+                <div style={{ marginTop: '5px', display: 'flex', flexDirection: 'column', gap: '5px', background: 'var(--bg-color)', padding: '10px', borderRadius: '8px' }}>
+                  <span style={{ fontSize: '0.65rem', fontWeight: 800, color: 'var(--brand)' }}>Participantes do Grupo:</span>
+                  {appUsers.map(u => (
+                    <label key={`gUser-${u.id}`} style={{ fontSize: '0.7rem', display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 0', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={novoGrupoUsuarios.includes(u.id)} onChange={() => handleToggleGrupoUser(u.id)} style={{ transform: 'scale(1.1)' }} />
+                      {u.name} {u.username === loggedUser ? '(Você)' : ''}
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="modal-actions" style={{ display: 'flex', justifyContent: 'flex-end', width: '100%' }}>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button className="btn-secondary" onClick={() => setIsCriarGrupoModalOpen(false)}>Cancelar</button>
+                  <button className="btn-primary" onClick={handleSalvarGrupo}>Salvar Grupo</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isThemeModalOpen && (
         <div className="modal-overlay" onClick={() => setIsThemeModalOpen(false)}>
           <div className="theme-modal" onClick={e => e.stopPropagation()}>
@@ -1362,10 +1611,10 @@ export default function App() {
                 <input type="text" className="form-input" placeholder="Descrição do item" value={sharedDescription} onChange={(e) => setSharedDescription(e.target.value)} />
                 <div style={{ display: 'flex', gap: '10px' }}>
                   <select className="form-select" value={sharedPaidBy} onChange={(e) => setSharedPaidBy(e.target.value)}>
-                    {appUsers.map(u => <option key={u.username} value={u.username}>{u.name} pagou</option>)}
+                    {appUsers.filter(u => membrosGrupoSelecionado.includes(u.id)).map(u => <option key={u.username} value={u.username}>{u.name} pagou</option>)}
                   </select>
                   <select className="form-select" value={sharedSplitMode} onChange={(e) => setSharedSplitMode(e.target.value)}>
-                    <option value="50_50">Dividir 50% / 50%</option>
+                    <option value="50_50">Dividir Igualmente</option>
                     <option value="100">100%</option>
                   </select>
                 </div>
@@ -1886,6 +2135,15 @@ export default function App() {
                     </div>
                     <button className="profile-menu-item" onClick={() => { setIsThemeModalOpen(true); setIsProfileMenuOpen(false); }}> Tema </button>
                     <button className="profile-menu-item" onClick={() => { setEditProfileName(loggedName || loggedUser); setEditProfileUser(loggedUser); setEditProfilePass(''); setIsProfileEditModalOpen(true); setIsProfileMenuOpen(false); }}> Editar Perfil </button>
+                    <button 
+                      className="profile-menu-item" 
+                      onClick={() => { 
+                        OneSignal.Slidedown.promptPush(); 
+                        setIsProfileMenuOpen(false); 
+                      }}
+                    >
+                      🔔 Configurar Notificações
+                    </button>
                     <button className="profile-menu-item danger" onClick={handleLogout}> Sair </button>
                   </div>
                 </>
@@ -2102,132 +2360,164 @@ export default function App() {
           )}
 
           {/* ========================================================= */}
-          {/* TELA: COMPARTILHADOS (SPLITWISE)                            */}
+          {/* TELA: COMPARTILHADOS (CONTAS E GRUPOS)                      */}
           {/* ========================================================= */}
           {abaAtual === 'compartilhados' && (
-            <div className="dash-container hide-scroll">
-              <div className="dash-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
-                <div className="card">
-                  <div className="card-top"><span className="card-label">VOCÊ PAGOU</span></div>
-                  <span className="card-value" style={{color: 'var(--text-main)'}}>{formatarMoeda(splitwiseData.myPaidTotal)}</span>
-                </div>
-                <div 
-                  className={`card debt-card ${splitwiseData.myBalance < 0 ? 'clickable' : ''}`} 
-                  style={{ background: splitwiseData.myBalance > 0 ? 'var(--green)' : (splitwiseData.myBalance < 0 ? 'var(--red)' : 'var(--surface)'), color: splitwiseData.myBalance !== 0 ? 'white' : 'var(--text-main)', cursor: splitwiseData.myBalance !== 0 ? 'pointer' : 'default' }}
-                  onClick={() => { if (splitwiseData.myBalance !== 0) { const pendingIds = filteredSharedExpenses.filter(e => !e.is_settled).map(e => e.id); setItemsToSettle(pendingIds); setSettleModalOpen(true); } }}
-                  title={splitwiseData.myBalance !== 0 ? "Clique para gerenciar itens pendentes" : ""}
-                >
-                  <div className="card-top" style={{ minHeight: '14px' }}>
-                    <span className="card-label" style={{ color: splitwiseData.myBalance !== 0 ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)', textTransform: 'uppercase' }}>
-                      {splitwiseData.myBalance > 0 ? `${splitwiseData.partnerName} TE DEVE` : (splitwiseData.myBalance < 0 ? `VOCÊ DEVE A ${splitwiseData.partnerName} (PAGAR)` : 'SALDO DEVEDOR')}
-                    </span>
+            <div className="dash-container hide-scroll" style={{ padding: '0 0.5rem' }}>
+              {!grupoContasSelecionado ? (
+                // VIEW DOS GRUPOS
+                <>
+                  <div className="controls-card events-header-controls">
+                    <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--brand)', margin: 0 }}>Meus Grupos de Contas</h2>
+                    <button className="btn-primary" onClick={() => handleOpenGrupoModal(null)}>+ Novo Grupo</button>
                   </div>
-                  <span className="card-value" style={{ color: splitwiseData.myBalance !== 0 ? 'white' : 'var(--text-main)' }}>{formatarMoeda(Math.abs(splitwiseData.myBalance))}</span>
-                </div>
-              </div>
+                  <div className="dash-grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))' }}>
+                    {gruposContas.map(grupo => (
+                      <div key={grupo.id} className="card" onClick={() => setGrupoContasSelecionado(grupo)} style={{ cursor: 'pointer', padding: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '10px', transition: '0.2s', border: '1px solid var(--border)', boxShadow: '0 8px 20px rgba(0,0,0,0.05)' }}>
+                         <div style={{ fontSize: '2.5rem', background: `${grupo.cor || '#0EA5E9'}22`, width: '70px', height: '70px', display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%' }}>{grupo.icone}</div>
+                         <span style={{ fontWeight: 900, fontSize: '0.9rem', textAlign: 'center', color: grupo.cor || 'var(--text-main)' }}>{grupo.nome}</span>
+                      </div>
+                    ))}
+                    {gruposContas.length === 0 && <p style={{ color: 'var(--text-muted)', gridColumn: '1/-1', textAlign: 'center', marginTop: '2rem'}}>Você não faz parte de nenhum grupo de contas.</p>}
+                  </div>
+                </>
+              ) : (
+                // VIEW DAS CONTAS DENTRO DO GRUPO (O que existia antes)
+                <>
+                  <div className="controls-card events-header-controls" style={{ marginBottom: '1rem', padding: '0.5rem 1rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <button className="btn-secondary" style={{ padding: '0.4rem' }} onClick={() => setGrupoContasSelecionado(null)}>← Voltar</button>
+                      <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: grupoContasSelecionado.cor || 'var(--brand)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {grupoContasSelecionado.icone} {grupoContasSelecionado.nome}
+                        <button className="action-btn" style={{ fontSize: '1rem', background: 'var(--surface)', border: '1px solid var(--border)', padding: '0.4rem', marginLeft: '10px' }} onClick={() => handleOpenGrupoModal(grupoContasSelecionado)} title="Editar Grupo">✏️</button>
+                      </h2>
+                    </div>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontWeight: 600 }}>({qtdMembrosGrupo} membros)</span>
+                  </div>
 
-              <div className="controls-card shared-controls">
-                <div style={{ display: 'flex', gap: '0.5rem' }}>
-                  <select className="form-select" value={sharedTab} onChange={e => setSharedTab(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)' }}>
-                    <option value="pendentes">Pendentes</option>
-                    <option value="pagos">Pagos</option>
-                  </select>
-                </div>
-                <div><button className="btn-primary" onClick={() => handleOpenSharedModal(null)}>+ Add Conta</button></div>
-              </div>
+                  <div className="dash-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+                    <div className="card">
+                      <div className="card-top"><span className="card-label">VOCÊ PAGOU</span></div>
+                      <span className="card-value" style={{color: 'var(--text-main)'}}>{formatarMoeda(splitwiseData.myPaidTotal)}</span>
+                    </div>
+                    <div 
+                      className={`card debt-card ${splitwiseData.myBalance < 0 ? 'clickable' : ''}`} 
+                      style={{ background: splitwiseData.myBalance > 0 ? 'var(--green)' : (splitwiseData.myBalance < 0 ? 'var(--red)' : 'var(--surface)'), color: splitwiseData.myBalance !== 0 ? 'white' : 'var(--text-main)', cursor: splitwiseData.myBalance !== 0 ? 'pointer' : 'default' }}
+                      onClick={() => { if (splitwiseData.myBalance !== 0) { const pendingIds = filteredSharedExpenses.filter(e => !e.is_settled).map(e => e.id); setItemsToSettle(pendingIds); setSettleModalOpen(true); } }}
+                      title={splitwiseData.myBalance !== 0 ? "Clique para gerenciar itens pendentes" : ""}
+                    >
+                      <div className="card-top" style={{ minHeight: '14px' }}>
+                        <span className="card-label" style={{ color: splitwiseData.myBalance !== 0 ? 'rgba(255,255,255,0.8)' : 'var(--text-muted)', textTransform: 'uppercase' }}>
+                          {splitwiseData.myBalance > 0 ? `GRUPO TE DEVE` : (splitwiseData.myBalance < 0 ? `VOCÊ DEVE (PAGAR)` : 'SALDO DEVEDOR')}
+                        </span>
+                      </div>
+                      <span className="card-value" style={{ color: splitwiseData.myBalance !== 0 ? 'white' : 'var(--text-main)' }}>{formatarMoeda(Math.abs(splitwiseData.myBalance))}</span>
+                    </div>
+                  </div>
 
-              <div className="table-container hide-scroll">
-                <div style={{ textAlign: 'center', fontSize: '1.2rem', fontWeight: 900, color: 'var(--brand)', margin: '15px 0 10px 0', textTransform: 'uppercase' }}>
-                  {sharedTab === 'pendentes' ? 'PENDENTES' : 'PAGOS'}
-                </div>
-                {isMobile ? (
-                   <div style={{ padding: '0 0.5rem 1rem 0.5rem' }}>
-                      {displayedSharedExpenses.length === 0 ? (
-                        <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Nenhuma despesa nesta aba.</p>
-                      ) : (
-                        displayedSharedExpenses.map(exp => (
-                           <div 
-                             key={exp.id} 
-                             onClick={() => handleOpenSharedModal(exp)}
-                             style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-dark)', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '10px', opacity: exp.is_settled ? 0.6 : 1, boxShadow: '0 4px 10px rgba(0,0,0,0.03)', cursor: 'pointer' }}
-                           >
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                 <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                    <span style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--text-main)', textDecoration: exp.is_settled ? 'line-through' : 'none' }}>{exp.title}</span>
-                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{exp.date} • {exp.paid_by === loggedUser ? 'Eu paguei' : (appUsers.find(u=>u.username===exp.paid_by)?.name || exp.paid_by) + ' pagou'}</span>
-                                 </div>
-                                 <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
-                                    <span style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--red)' }}>{formatarMoeda(exp.amount)}</span>
-                                    <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', background: 'var(--bg-color)', padding: '2px 6px', borderRadius: '4px' }}>{exp.split_mode === '50_50' ? 'Divisão 50%' : 'Divisão 100%'}</span>
-                                 </div>
-                              </div>
-                              
-                              {/* actions footer inside mobile card */}
-                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '10px' }} onClick={e => e.stopPropagation()}>
-                                 <select
-                                   className="form-select"
-                                   style={{ width: 'auto', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 800 }}
-                                   value={exp.is_settled ? 'pago' : 'pendente'}
-                                   onChange={(e) => updateSharedField(exp.id, 'is_settled', e.target.value === 'pago')}
-                                 >
-                                   <option value="pendente">Pendente</option>
-                                   <option value="pago">Pago</option>
-                                 </select>
-                                 <div style={{ display: 'flex', gap: '5px' }}>
-                                   <button className="action-btn del-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', background: 'var(--red-bg)', color: 'var(--red)', fontWeight: 700 }} onClick={(e) => { e.stopPropagation(); handleDeleteSharedExpense(exp.id); }}>Excluir</button>
-                                 </div>
-                              </div>
-                           </div>
-                        ))
-                      )}
-                   </div>
-                ) : (
-                  <table className="shared-table">
-                    <thead>
-                      <tr><th>Data</th><th>Item</th><th>Descrição</th><th>Quem Pagou?</th><th>Divisão</th><th>Valor (R$)</th><th style={{width: '150px', textAlign: 'center'}}>Ações</th></tr>
-                    </thead>
-                    <tbody>
-                      {displayedSharedExpenses.length === 0 ? (
-                        <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Nenhuma despesa nesta aba.</td></tr>
-                      ) : (
-                        displayedSharedExpenses.map(exp => (
-                          <tr key={exp.id} className={exp.is_settled ? 'settled' : ''}>
-                            <td data-label="Data" style={{ color: 'var(--text-muted)', fontWeight: 600 }}><input type="text" className="item-name-input" defaultValue={exp.date} onBlur={e => updateSharedField(exp.id, 'date', e.target.value)} /></td>
-                            <td data-label="Item"><input type="text" className="item-name-input" defaultValue={exp.title} onBlur={e => updateSharedField(exp.id, 'title', e.target.value)} /></td>
-                            <td data-label="Descrição"><input type="text" className="item-name-input" style={{color: 'var(--text-muted)'}} defaultValue={exp.description || exp.desc} onBlur={e => updateSharedField(exp.id, 'description', e.target.value)} /></td>
-                            <td data-label="Quem Pagou?">
-                              <select className="item-name-input" value={exp.paid_by} onChange={e => updateSharedField(exp.id, 'paid_by', e.target.value)}>
-                                {appUsers.map(u => <option key={u.username} value={u.username}>{u.name}</option>)}
-                              </select>
-                            </td>
-                            <td data-label="Divisão">
-                              <select className="item-name-input" value={exp.split_mode} onChange={e => updateSharedField(exp.id, 'split_mode', e.target.value)}>
-                                <option value="50_50">50%</option>
-                                <option value="100">100%</option>
-                              </select>
-                            </td>
-                            <td data-label="Valor (R$)">
-                              <input type="text" className="item-name-input" style={{ fontWeight: 700, color: 'var(--red)' }} defaultValue={formatarMoeda(exp.amount)} onBlur={e => { const val = parseFloat(e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.')); if(!isNaN(val)) updateSharedField(exp.id, 'amount', val); }} />
-                            </td>
-                            <td data-label="Ações" className="action-cell" style={{ display: 'flex', gap: '5px', alignItems: 'center', justifyContent: 'center', borderBottom: 'none', height: '100%', minHeight: '40px' }}>
-                              <select
-                                className="form-select"
-                                style={{ width: 'auto', padding: '4px 8px', fontSize: '0.65rem', marginRight: '5px', fontWeight: 700 }}
-                                value={exp.is_settled ? 'pago' : 'pendente'}
-                                onChange={(e) => updateSharedField(exp.id, 'is_settled', e.target.value === 'pago')}
-                              >
-                                <option value="pendente">Pendente</option>
-                                <option value="pago">Pago</option>
-                              </select>
-                              <button className="action-btn del-btn" style={{ padding: '4px 8px', background: 'var(--red-bg)', color: 'var(--red)', fontWeight: 700, fontSize: '0.65rem' }} onClick={() => handleDeleteSharedExpense(exp.id)}>Excluir</button>
-                            </td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                )}
-              </div>
+                  <div className="controls-card shared-controls">
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <select className="form-select" value={sharedTab} onChange={e => setSharedTab(e.target.value)} style={{ fontWeight: 800, color: 'var(--brand)' }}>
+                        <option value="pendentes">Pendentes</option>
+                        <option value="pagos">Pagos</option>
+                      </select>
+                    </div>
+                    <div><button className="btn-primary" onClick={() => handleOpenSharedModal(null)}>+ Add Conta</button></div>
+                  </div>
+
+                  <div className="table-container hide-scroll">
+                    <div style={{ textAlign: 'center', fontSize: '1.2rem', fontWeight: 900, color: 'var(--brand)', margin: '15px 0 10px 0', textTransform: 'uppercase' }}>
+                      {sharedTab === 'pendentes' ? 'PENDENTES' : 'PAGOS'}
+                    </div>
+                    {isMobile ? (
+                       <div style={{ padding: '0 0.5rem 1rem 0.5rem' }}>
+                          {displayedSharedExpenses.length === 0 ? (
+                            <p style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Nenhuma despesa nesta aba.</p>
+                          ) : (
+                            displayedSharedExpenses.map(exp => (
+                               <div 
+                                 key={exp.id} 
+                                 onClick={() => handleOpenSharedModal(exp)}
+                                 style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '12px', border: '1px solid var(--border-dark)', marginBottom: '1rem', display: 'flex', flexDirection: 'column', gap: '10px', opacity: exp.is_settled ? 0.6 : 1, boxShadow: '0 4px 10px rgba(0,0,0,0.03)', cursor: 'pointer' }}
+                               >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                                        <span style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--text-main)', textDecoration: exp.is_settled ? 'line-through' : 'none' }}>{exp.title}</span>
+                                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>{exp.date} • {exp.paid_by === loggedUser ? 'Eu paguei' : (appUsers.find(u=>u.username===exp.paid_by)?.name || exp.paid_by) + ' pagou'}</span>
+                                     </div>
+                                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '6px' }}>
+                                        <span style={{ fontWeight: 900, fontSize: '0.9rem', color: 'var(--red)' }}>{formatarMoeda(exp.amount)}</span>
+                                        <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', background: 'var(--bg-color)', padding: '2px 6px', borderRadius: '4px' }}>{exp.split_mode === '50_50' ? 'Rateio Igual' : '100%'}</span>
+                                     </div>
+                                  </div>
+                                  
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderTop: '1px solid var(--border)', paddingTop: '10px' }} onClick={e => e.stopPropagation()}>
+                                     <select
+                                       className="form-select"
+                                       style={{ width: 'auto', padding: '4px 8px', fontSize: '0.65rem', fontWeight: 800 }}
+                                       value={exp.is_settled ? 'pago' : 'pendente'}
+                                       onChange={(e) => updateSharedField(exp.id, 'is_settled', e.target.value === 'pago')}
+                                     >
+                                       <option value="pendente">Pendente</option>
+                                       <option value="pago">Pago</option>
+                                     </select>
+                                     <div style={{ display: 'flex', gap: '5px' }}>
+                                       <button className="action-btn del-btn" style={{ fontSize: '0.65rem', padding: '4px 8px', background: 'var(--red-bg)', color: 'var(--red)', fontWeight: 700 }} onClick={(e) => { e.stopPropagation(); handleDeleteSharedExpense(exp.id); }}>Excluir</button>
+                                     </div>
+                                  </div>
+                               </div>
+                            ))
+                          )}
+                       </div>
+                    ) : (
+                      <table className="shared-table">
+                        <thead>
+                          <tr><th>Data</th><th>Item</th><th>Descrição</th><th>Quem Pagou?</th><th>Divisão</th><th>Valor (R$)</th><th style={{width: '150px', textAlign: 'center'}}>Ações</th></tr>
+                        </thead>
+                        <tbody>
+                          {displayedSharedExpenses.length === 0 ? (
+                            <tr><td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Nenhuma despesa nesta aba.</td></tr>
+                          ) : (
+                            displayedSharedExpenses.map(exp => (
+                              <tr key={exp.id} className={exp.is_settled ? 'settled' : ''}>
+                                <td data-label="Data" style={{ color: 'var(--text-muted)', fontWeight: 600 }}><input type="text" className="item-name-input" defaultValue={exp.date} onBlur={e => updateSharedField(exp.id, 'date', e.target.value)} /></td>
+                                <td data-label="Item"><input type="text" className="item-name-input" defaultValue={exp.title} onBlur={e => updateSharedField(exp.id, 'title', e.target.value)} /></td>
+                                <td data-label="Descrição"><input type="text" className="item-name-input" style={{color: 'var(--text-muted)'}} defaultValue={exp.description || exp.desc} onBlur={e => updateSharedField(exp.id, 'description', e.target.value)} /></td>
+                                <td data-label="Quem Pagou?">
+                                  <select className="item-name-input" value={exp.paid_by} onChange={e => updateSharedField(exp.id, 'paid_by', e.target.value)}>
+                                    {appUsers.filter(u => membrosGrupoSelecionado.includes(u.id)).map(u => <option key={u.username} value={u.username}>{u.name}</option>)}
+                                  </select>
+                                </td>
+                                <td data-label="Divisão">
+                                  <select className="item-name-input" value={exp.split_mode} onChange={e => updateSharedField(exp.id, 'split_mode', e.target.value)}>
+                                    <option value="50_50">Igual</option>
+                                    <option value="100">100%</option>
+                                  </select>
+                                </td>
+                                <td data-label="Valor (R$)">
+                                  <input type="text" className="item-name-input" style={{ fontWeight: 700, color: 'var(--red)' }} defaultValue={formatarMoeda(exp.amount)} onBlur={e => { const val = parseFloat(e.target.value.replace(/[^0-9.,]/g, '').replace(',', '.')); if(!isNaN(val)) updateSharedField(exp.id, 'amount', val); }} />
+                                </td>
+                                <td data-label="Ações" className="action-cell" style={{ display: 'flex', gap: '5px', alignItems: 'center', justifyContent: 'center', borderBottom: 'none', height: '100%', minHeight: '40px' }}>
+                                  <select
+                                    className="form-select"
+                                    style={{ width: 'auto', padding: '4px 8px', fontSize: '0.65rem', marginRight: '5px', fontWeight: 700 }}
+                                    value={exp.is_settled ? 'pago' : 'pendente'}
+                                    onChange={(e) => updateSharedField(exp.id, 'is_settled', e.target.value === 'pago')}
+                                  >
+                                    <option value="pendente">Pendente</option>
+                                    <option value="pago">Pago</option>
+                                  </select>
+                                  <button className="action-btn del-btn" style={{ padding: '4px 8px', background: 'var(--red-bg)', color: 'var(--red)', fontWeight: 700, fontSize: '0.65rem' }} onClick={() => handleDeleteSharedExpense(exp.id)}>Excluir</button>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
